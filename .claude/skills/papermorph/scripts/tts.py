@@ -16,10 +16,14 @@ per run. The narration file adds a block:
     "engine": "chatterbox", "voice": "juan",            (voice is a label; it keys the cache)
     "chatterbox": { "voice_dir": "~/chatterbox_voice",    (folder with voice.py: speak(text, out_path, seed, temperature))
                     "python": "~/.venvs/chatterbox/bin/python", "seed": 7, "temperature": 0.6,
-                    "align": "auto" }                      ("auto", "whisper" or "estimate"; see chatterbox_worker.py)
+                    "align": "auto",                       ("auto", "whisper" or "estimate"; see chatterbox_worker.py)
+                    "chunk_words": 25, "min_match": 0.9, "retries": 2 }
 voice_dir and python may also come from CHATTERBOX_VOICE_DIR and CHATTERBOX_PYTHON. "rate" is ignored. Chatterbox
 gives no word times: they come from faster-whisper when it is installed in that environment, otherwise they are
 estimated, which can put a mark a fraction of a second off. [chuckle]-style tags are spoken and left out of captions.
+Chatterbox Turbo stops silently after about 40 s of speech, so each beat is spoken in chunks of whole sentences of at most
+chunk_words words. With whisper, a take where fewer than min_match of the script words are heard is made again with
+another seed (up to retries times) and the best take is kept; a beat that still misses words prints a warning.
 
 Narration text may contain [[mark]] tags placed before a word. The output
 timings.js records each clip's duration and the time (seconds) at which the
@@ -161,23 +165,53 @@ def chatterbox_worker(cfg):
 
 
 def chatterbox_beat(beat, text, cfg, mp3_path):
-    """Synthesize with the local Chatterbox voice; word times come from the worker (whisper or an estimate)."""
+    """Synthesize with the local Chatterbox voice; word times come from the worker (whisper or an estimate).
+    The worker speaks long beats in chunks. A take whose words do not match the script (a dropped or repeated word)
+    is made again with another seed, and the best one is kept."""
+    import shutil
     proc = chatterbox_worker(cfg)
     wav = Path(mp3_path).with_suffix(".wav")
+    best_wav = Path(mp3_path).with_suffix(".best.wav")
+    min_match, tries = cfg.get("min_match", 0.9), 1 + int(cfg.get("retries", 2))
+    best = None
     try:
-        proc.stdin.write(json.dumps({"text": text, "wav": str(wav), "seed": cfg.get("seed"),
-                                     "temperature": cfg.get("temperature", 0.8)}) + "\n")
-        proc.stdin.flush()
-        line = proc.stdout.readline()
-        if not line:
-            raise SystemExit(f"{beat}: the chatterbox worker stopped (see the messages above)")
-        reply = json.loads(line)
-        if "error" in reply:
-            raise SystemExit(f"{beat}: chatterbox failed: {reply['error']}")
-        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(wav), "-ac", "1", "-b:a", "96k", str(mp3_path)], check=True)
+        for attempt in range(tries):
+            CHATTERBOX["n"] = rid = CHATTERBOX.get("n", 0) + 1
+            proc.stdin.write(json.dumps({"id": rid, "text": text, "wav": str(wav), "seed": cfg.get("seed"),
+                                         "temperature": cfg.get("temperature", 0.8),
+                                         "chunk_words": cfg.get("chunk_words", 25),
+                                         "seed_offset": 1000 * attempt}) + "\n")
+            proc.stdin.flush()
+            line = proc.stdout.readline()
+            if not line:
+                raise SystemExit(f"{beat}: the chatterbox worker stopped (see the messages above)")
+            reply = json.loads(line)
+            if reply.get("id") != rid:   # the worker answers in order; a reply for another request means the audio is not this beat's
+                raise SystemExit(f"{beat}: the chatterbox worker answered request {reply.get('id')}, not {rid}; "
+                                 "stopping so no beat gets another beat's audio")
+            if "error" in reply:
+                raise SystemExit(f"{beat}: chatterbox failed: {reply['error']}")
+            if reply["truncated"]:
+                raise SystemExit(f"{beat}: chunk {reply['truncated']} reached Chatterbox's limit of about 40 s and was cut "
+                                 "off. A single sentence is too long: split it with full stops, or lower chatterbox.chunk_words.")
+            score = 1.0 if reply["match"] is None else reply["match"]
+            if best is None or score > best[0]:
+                best = (score, reply)
+                shutil.copyfile(wav, best_wav)
+            if score >= min_match:
+                break
+            if attempt + 1 < tries:
+                print(f"{beat}: only {score:.0%} of the script words were heard, making another take "
+                      f"(attempt {attempt + 2} of {tries})", file=sys.stderr, flush=True)
+        score, reply = best
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(best_wav), "-ac", "1", "-b:a", "96k", str(mp3_path)], check=True)
     finally:
         wav.unlink(missing_ok=True)
-    print(f"{beat}: word times by {reply['method']}", file=sys.stderr, flush=True)
+        best_wav.unlink(missing_ok=True)
+    checked = f", {score:.0%} of the words heard" if reply["match"] is not None else ", words not checked"
+    print(f"{beat}: word times by {reply['method']}{checked}, {reply['chunks']} chunk(s)", file=sys.stderr, flush=True)
+    if reply["match"] is not None and score < min_match:
+        print(f"{beat}: WARNING: the best take still misses script words; listen to it before using it", file=sys.stderr, flush=True)
     return reply["words"]
 
 
@@ -276,7 +310,7 @@ async def main(src, out_dir):
         clean, marks = split_marks(raw)
         tag = "" if engine == "edge" else f"{engine}|"   # Edge keys stay as they were, so its audio is kept
         if engine == "chatterbox":
-            tag += f"{cb.get('seed')}|{cb.get('temperature', 0.8)}|"   # another seed or temperature is another take
+            tag += f"{cb.get('seed')}|{cb.get('temperature', 0.8)}|{cb.get('chunk_words', 25)}|"   # another seed, temperature or chunking is another take
         key = hashlib.sha1(f"{tag}{voice}|{rate}|{clean}".encode()).hexdigest()
         # Existing caches included [[marks]] in the key; reuse an unchanged old beat once,
         # then save its spoken-text key so future mark edits do not regenerate audio.

@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "mode": "video",
+  "tier": 1,
+  "book": { "title": "Video title", "slug": "my-video", "language": "en", "readers": "general YouTube audience, curious beginners", "pilot": "ch01" },
+  "words": [
+    "The user's own words about the look and the tone, verbatim.",
+    "Later feedback that changed the bar, with the chapter it came from."
+  ],
+  "look": {
+    "palette": { "board": "#1d2b27", "ink": "#ece8dc", "accent": ["#f0b45a", "#8fd6b0"] },
+    "meaning": { "key": "#f0b45a" },
+    "fonts": { "text": "system UI", "math": "serif (engine default)" },
+    "notation": "plain words for symbols in narration"
+  },
+  "voice": { "engine": "edge", "voice": "en-US-AndrewMultilingualNeural", "rate": "-4%" },
+  "narration": {
+    "arc": "hook_payoff",
+    "hook": "surprising_stat",
+    "persona": "a curious friend working it out with the viewer",
+    "ending": "button",
+    "words_per_beat": [20, 40],
+    "sections": "4-6, each with a mini-hook and a small payoff",
+    "gate": "show the beat map and full script, wait for approval before tts.py"
+  },
+  "pacing": { "minutes": [8, 12], "checks": "none: video mode, no quizzes or practice" },
+  "engine": { "source": "DozenTwelve/Papermorph", "ref": "main" },
+  "export": { "fps": 30, "height": 1080, "end_card": "none or a short outro line" },
+  "components": [],
+  "approved": []
+}

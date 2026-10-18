@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VIDEO TITLE</title>
+<link rel="stylesheet" href="../lib/engine.css">
+<link rel="expect" href="#bar" blocking="render"><!-- hold the first frame until the player exists, so the page transition can run -->
+</head>
+<body>
+<script src="../lib/engine.js"></script>
+<script src="audio/en/timings.js"></script>
+<script>
+'use strict';
+// Video mode skeleton (style.json "mode": "video"): a hook, sections that each open with a short beat, lesson
+// beats, a payoff. No question beats, no practice, no finish card; export with scripts/export.py.
+// Beat ids match narration.video.en.json. A starting skeleton, not a design: replace every beat.
+// <html lang> sets the interface text, language the audio folder: keep both, and the timings path above, in the book's language.
+const CHAPTER = { number: 1, title: 'VIDEO TITLE', minutes: 10, language: 'en' };
+
+/* ---------- chapter drawing helpers ---------- */
+const mline = (p, parts, x, y, t0, fill = COL.chalk, size = 48, anchor = 'middle') => { const e = M(p, [].concat(parts), { x, y, size, fill, anchor, o: 0 }); show(e, t0); return e; };
+const text = (p, str, x, y, t0, { size = 30, fill = COL.chalk, anchor = 'start', weight = 500 } = {}) => { const e = T(p, str, { x, y, size, fill, anchor, weight, o: 0 }); show(e, t0); return e; };
+
+/* ---------- beats: [id, title, run(m, D)] ---------- */
+const BEATS = [
+  // The hook comes first: the claim is on screen from the start, the title follows the word that names it.
+  ['hook', 'HOOK', (m, D) => {
+    const g = G(scene, { o: 0, y: 24 });
+    T(g, 'THE SURPRISING CLAIM', { x: 800, y: 430, size: 80, weight: 600, anchor: 'middle' });
+    tw(g, { o: 1, y: 0 }, .1, .9, out);
+    text(scene, 'VIDEO TITLE', 800, 600, m('title'), { size: 34, fill: COL.dim, anchor: 'middle' });
+  }],
+  // A section opens with a short beat: a question or a part title.
+  ['s1', 'SECTION ONE', () => {
+    const p = panel(0);
+    text(p, 'Part 1 · a short question', 800, 450, .2, { size: 56, weight: 600, anchor: 'middle' });
+  }],
+  ['s1a', 'FIRST IDEA', (m) => {
+    const p = panel(0);                                  // fades the last picture; put the topic on screen at once
+    mline(p, '3 + 4 = 7', 800, 260, .2, COL.chalk, 64);
+    text(p, 'a note that appears with its word', 800, 380, m('note'), { size: 30, fill: COL.task, anchor: 'middle', weight: 600 });
+  }],
+  ['s1b', 'EXAMPLE THEN RULE', (m) => {
+    const p = panel(0);
+    text(p, 'the concrete example', 800, 300, .2, { size: 40, anchor: 'middle' });
+    text(p, 'the rule, in plain words', 800, 420, m('rule'), { size: 34, fill: COL.task, anchor: 'middle', weight: 600 });
+  }],
+  ['s2', 'SECTION TWO', () => {
+    const p = panel(0);
+    text(p, 'Part 2 · picks up from the last payoff', 800, 450, .2, { size: 56, weight: 600, anchor: 'middle' });
+  }],
+  ['s2a', 'CONTRAST', (m) => {
+    const p = panel(0);
+    text(p, 'what you expect', 480, 400, m('before'), { size: 40, anchor: 'middle' });
+    text(p, 'what actually happens', 1120, 400, m('after'), { size: 40, fill: COL.task, anchor: 'middle', weight: 600 });
+  }],
+  // The payoff lands the point and stops on a button line. No finish card in video mode.
+  ['payoff', 'PAYOFF', (m) => {
+    const p = panel(0);
+    text(p, 'THE POINT, IN ONE LINE', 800, 450, .2, { size: 64, weight: 600, anchor: 'middle' });
+    text(p, 'the button line', 800, 570, m('end'), { size: 34, fill: COL.dim, anchor: 'middle' });
+  }],
+].map(([id, title, run, extra]) => ({ id, title, run, ...extra }));
+
+boot();
+</script>
+</body>
+</html>

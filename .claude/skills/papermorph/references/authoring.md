@@ -1,5 +1,7 @@
 # Authoring a chapter
 
+For a video-mode book (`style.json` `"mode": "video"`), read [narration.md](narration.md) first: it replaces the question beats and the shape below with a hook, sections and a payoff. Beat mechanics, marks and writing for the ear below still apply.
+
 ## Shape
 
 Chapters have run 5–18 minutes with 5–40 second beats; a long chapter can hold several parts (each a short title beat, lessons, a quick check and a wrap). Let the content determine length and the number of checks/practice sets.

@@ -42,6 +42,17 @@ Recommend one from the chapter's content: abstract and procedural ideas fit tier
 
 **Custom**: ask what the description leaves open, using the closest tier's rounds and options.
 
+## 4b. Video mode: tone and script
+
+When the user wants a YouTube video, not an interactive lesson, the source may be a PDF, an outline, or a transcript to rework; skip the PDF steps that do not apply. Set `"mode": "video"` and start from [style.video.json](../assets/templates/style.video.json). Read [narration.md](narration.md). Quizzes, practice and the score card do not exist in this mode, so skip any question about them.
+
+Ask in this order, as choices:
+1. **Arc and hook.** Recommend one arc from the topic (`hook_payoff`, `how_it_works`, `myth_buster`, `struggle_insight`, `timeline`, `story_spine`, `listicle`) and a hook pattern; the user confirms or changes.
+2. **Tone bake-off.** Write one beat, the hook or the first lesson beat, in three tones (for example casual, curious, authoritative). Show the three side by side. The user picks one or describes a mix; record the choice in `narration.persona` and their own words in `words`. Offer to hear the chosen text with `tts.py` before going on.
+3. **Length.** Recommend a length in minutes (the template says 8–12) and say what it means in words and sections.
+
+Then write the beat map and the whole script and **stop for approval**: show the user the table (`id | section | purpose | feel | words`) and the narration text. Do not run `tts.py`, build the storyboard or write the chapter page until they approve. Fold their edits into the script, and record the approval in `chapters/chNN.md`.
+
 ## 5. style.json
 
 Start from [the template](../assets/templates/style.json). Blocks are grouped by ability, not by tier; a tier is just which blocks are present:

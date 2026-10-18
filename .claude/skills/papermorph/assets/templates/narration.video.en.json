@@ -1,0 +1,13 @@
+{
+  "voice": "en-US-AndrewMultilingualNeural",
+  "rate": "-4%",
+  "beats": {
+    "hook": "The surprising claim, said in the first sentence. [[title]]Then the question the video answers.",
+    "s1": "Section one opens with a short question.",
+    "s1a": "Say the first idea while the picture builds it. [[note]]The mark goes right before the word the animation waits for.",
+    "s1b": "Show a concrete example before the rule. [[rule]]Then state the rule in plain words.",
+    "s2": "Section two opens, and it picks up from the last payoff.",
+    "s2a": "A contrast carries interest: [[before]]what you expect, [[after]]and what actually happens.",
+    "payoff": "Land the point in one line. [[end]]Then stop on a button line."
+  }
+}

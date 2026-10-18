@@ -3,10 +3,13 @@
 
     uv run --with playwright export.py ch12 --url http://localhost:8765/<book>/ --out OUT
     ... --fps 30 --height 1080 --link https://example.org/<book>/ch12/
+    ... --no-end-card                       # video mode: end on the last beat
+    ... --end-text 'Thanks for watching'    # or a different line on the end card
 
 The engine draws every frame as a pure function of the beat time, so frames are rendered by seeking, not by
 recording playback: the video is exact and the same on every run. Question beats (quick checks and practice) are
 left out; the video ends on a card saying they are in the interactive lesson (--link adds its address).
+Video-mode books have no questions: use --end-text '' for a card without that line, or --no-end-card to end on the last beat.
 Captions are not burned in: upload OUT/chNN.srt with the video. Needs ffmpeg; serve the site over HTTP first.
 """
 import argparse, asyncio, json, subprocess, sys, tempfile
@@ -16,7 +19,7 @@ from playwright.async_api import async_playwright
 END_SECONDS = 4
 FLAT = '#frame { border-radius: 0 !important; box-shadow: none !important; }'   # square corners in the video
 
-END_CARD = """(link) => {
+END_CARD = """({link, line}) => {
   const d = document.createElement('div');
   d.id = 'exportEnd';
   d.style.cssText = 'position:absolute;left:0;top:0;width:1600px;height:900px;display:flex;flex-direction:column;' +
@@ -24,7 +27,7 @@ END_CARD = """(link) => {
     'font-family:inherit;text-align:center;z-index:50';
   d.innerHTML = `<div style="font-size:30px;opacity:.65;letter-spacing:.08em;text-transform:uppercase">Chapter ${CHAPTER.number}</div>
     <div style="font-size:64px;font-weight:600;max-width:1300px">${CHAPTER.title}</div>
-    <div style="font-size:34px;opacity:.85;margin-top:30px">Quick checks and practice are in the interactive lesson.</div>
+    ${line ? `<div style="font-size:34px;opacity:.85;margin-top:30px">${line}</div>` : ''}
     ${link ? `<div style="font-size:30px;opacity:.65">${link}</div>` : ''}`;
   document.getElementById('frame').append(d);
 }"""
@@ -70,7 +73,8 @@ async def main(a):
                 stop = T['cues'][k + 1][0] if k + 1 < len(T['cues']) else T['dur']
                 cues.append((offset + t, offset + stop, line))
             offset += end
-        total = offset + END_SECONDS
+        end_s = 0 if a.no_end_card else END_SECONDS
+        total = offset + end_s
         site_audio = [f'{a.url}{a.chapter}/audio/{info["lang"]}/{bid}.mp3' for _, bid in beats]
         inputs, chains = [], []
         for k, src in enumerate(site_audio):
@@ -95,10 +99,11 @@ async def main(a):
                 enc.stdin.write(await pg.screenshot(clip=clip, type='jpeg', quality=92))
                 frames += 1
             print(f'{bid}: {n} frames', flush=True)
-        await pg.evaluate(END_CARD, a.link or '')
-        end = await pg.screenshot(clip=clip, type='jpeg', quality=92)
-        for _ in range(END_SECONDS * a.fps):
-            enc.stdin.write(end)
+        if end_s:
+            await pg.evaluate(END_CARD, {'link': a.link or '', 'line': a.end_text})
+            end = await pg.screenshot(clip=clip, type='jpeg', quality=92)
+            for _ in range(end_s * a.fps):
+                enc.stdin.write(end)
         enc.stdin.close(); enc.wait()
         await b.close()
     with open(out / f'{a.chapter}.srt', 'w', encoding='utf-8') as f:
@@ -119,4 +124,7 @@ if __name__ == '__main__':
     ap.add_argument('--fps', type=int, default=30)
     ap.add_argument('--height', type=int, default=1080, help='video height; width is 16:9')
     ap.add_argument('--link', help='address of the interactive lesson, shown on the end card')
+    ap.add_argument('--end-text', default='Quick checks and practice are in the interactive lesson.',
+                    help="line on the end card; '' leaves it out")
+    ap.add_argument('--no-end-card', action='store_true', help='no end card: the video ends on the last beat')
     asyncio.run(main(ap.parse_args()))

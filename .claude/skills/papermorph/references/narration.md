@@ -58,6 +58,23 @@ Each beat gets a `feel` of one or two words in the beat map: `intriguing`, `bris
 
 Keep one voice and one rate per book (see [authoring.md](authoring.md#narration)).
 
+### Your own voice with Chatterbox
+
+`"engine": "chatterbox"` speaks the narration in a voice saved locally with Chatterbox Turbo, with no network and no `uv`. It is the best lever here for a natural delivery: Chatterbox reads paralinguistic tags such as `[chuckle]` as sounds, so a script can laugh, and `temperature` (about 0.5 for steadier delivery) and `seed` (for a repeatable take) are set in the narration file:
+
+```json
+{ "engine": "chatterbox", "voice": "juan",
+  "chatterbox": { "voice_dir": "~/personal/chatterbox_voice", "python": "~/.venvs/chatterbox/bin/python",
+                  "seed": 7, "temperature": 0.6 },
+  "beats": { "hook": "Money kept changing shape. [[sub]]So what is it, really? [chuckle] Let's find out." } }
+```
+
+- `voice_dir` holds a `voice.py` with `speak(text, out_path, seed, temperature)`; `python` is the environment where Chatterbox is installed. `tts.py` runs `chatterbox_worker.py` in that environment once per run, so the model loads once, not once per beat.
+- `voice` is only a label that keys the cache. `rate` is ignored. Changing `seed` or `temperature` makes new takes.
+- Tags in single brackets are spoken and left out of the captions. `[[marks]]` work as before.
+- **Mark accuracy.** Chatterbox gives no word times. With `faster-whisper` installed in the Chatterbox environment, `tts.py` uses it to find them and a mark lands on its word. Without it the times are estimated from the text and where speech starts and ends, which in a short test put marks 0.1 to 0.4 seconds early or late; with `faster-whisper` the same marks were within about 0.1 seconds of where the speech resumed after each pause. Each beat prints `word times by whisper` or `by estimate`; if you see `estimate`, install `faster-whisper` there before animating tightly timed beats.
+- Listen to every beat before the storyboard. A synthetic take can repeat or drop a word, and `lint.py` compares the script to what was generated, not to what you hear.
+
 ## Voice of the script
 
 Set once in `style.json` as `narration.persona`, for example "a curious friend working it out with the viewer". Then:

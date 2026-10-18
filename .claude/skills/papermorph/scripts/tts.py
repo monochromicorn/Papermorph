@@ -1,13 +1,25 @@
-"""Generate narration audio and word-mark timings with Edge TTS or Kokoro.
+"""Generate narration audio and word-mark timings with Edge TTS, Kokoro or a local Chatterbox voice.
 
 Usage (from the project root; SKILL is this skill's folder):
     uv run --with edge-tts $SKILL/scripts/tts.py content/ch01/narration.en.json site/ch01/audio/en
     uv run --python 3.12 --with kokoro $SKILL/scripts/tts.py ...      # narration with "engine": "kokoro"
+    python3 $SKILL/scripts/tts.py ...                                 # narration with "engine": "chatterbox"
 
 The narration file names the engine ("edge", the default, or "kokoro"), the voice and the rate. Edge needs network
 access. Kokoro (Apache 2.0) runs locally: its first run downloads the model (about 330 MB) and an English dictionary;
 voices start with the accent's letter (am_michael, af_heart: American; bm_george, bf_emma: British) and its word
 timings cover English. Both need ffmpeg/ffprobe.
+
+Chatterbox (engine "chatterbox") speaks in a voice you saved locally. tts.py itself needs only ffmpeg; it starts
+scripts/chatterbox_worker.py with the Python of the environment where Chatterbox is installed, so the model loads once
+per run. The narration file adds a block:
+    "engine": "chatterbox", "voice": "juan",            (voice is a label; it keys the cache)
+    "chatterbox": { "voice_dir": "~/chatterbox_voice",    (folder with voice.py: speak(text, out_path, seed, temperature))
+                    "python": "~/.venvs/chatterbox/bin/python", "seed": 7, "temperature": 0.6,
+                    "align": "auto" }                      ("auto", "whisper" or "estimate"; see chatterbox_worker.py)
+voice_dir and python may also come from CHATTERBOX_VOICE_DIR and CHATTERBOX_PYTHON. "rate" is ignored. Chatterbox
+gives no word times: they come from faster-whisper when it is installed in that environment, otherwise they are
+estimated, which can put a mark a fraction of a second off. [chuckle]-style tags are spoken and left out of captions.
 
 Narration text may contain [[mark]] tags placed before a word. The output
 timings.js records each clip's duration and the time (seconds) at which the
@@ -123,6 +135,59 @@ def kokoro_beat(text, voice, rate, mp3_path):
     return words
 
 
+CHATTERBOX = {}   # the running worker process, started on the first beat
+
+
+def chatterbox_worker(cfg):
+    if "proc" in CHATTERBOX:
+        return CHATTERBOX["proc"]
+    import os
+    voice_dir = Path(os.path.expanduser(cfg.get("voice_dir") or os.environ.get("CHATTERBOX_VOICE_DIR", "")))
+    py = os.path.expanduser(cfg.get("python") or os.environ.get("CHATTERBOX_PYTHON", "~/.venvs/chatterbox/bin/python"))
+    if not (voice_dir / "voice.py").exists():
+        raise SystemExit(f"chatterbox: no voice.py in {voice_dir}; set chatterbox.voice_dir or CHATTERBOX_VOICE_DIR")
+    if not Path(py).exists():
+        raise SystemExit(f"chatterbox: Python not found at {py}; set chatterbox.python or CHATTERBOX_PYTHON")
+    proc = subprocess.Popen([py, str(Path(__file__).with_name("chatterbox_worker.py"))], text=True, bufsize=1,
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE)   # stderr stays on the terminal
+    proc.stdin.write(json.dumps({"voice_dir": str(voice_dir), "align": cfg.get("align", "auto"),
+                                 "whisper_model": cfg.get("whisper_model", "small"),
+                                 "language": cfg.get("language", "en")}) + "\n")
+    proc.stdin.flush()
+    if not proc.stdout.readline():
+        raise SystemExit("chatterbox: the worker exited while loading the model (see the messages above)")
+    CHATTERBOX["proc"] = proc
+    return proc
+
+
+def chatterbox_beat(beat, text, cfg, mp3_path):
+    """Synthesize with the local Chatterbox voice; word times come from the worker (whisper or an estimate)."""
+    proc = chatterbox_worker(cfg)
+    wav = Path(mp3_path).with_suffix(".wav")
+    try:
+        proc.stdin.write(json.dumps({"text": text, "wav": str(wav), "seed": cfg.get("seed"),
+                                     "temperature": cfg.get("temperature", 0.8)}) + "\n")
+        proc.stdin.flush()
+        line = proc.stdout.readline()
+        if not line:
+            raise SystemExit(f"{beat}: the chatterbox worker stopped (see the messages above)")
+        reply = json.loads(line)
+        if "error" in reply:
+            raise SystemExit(f"{beat}: chatterbox failed: {reply['error']}")
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(wav), "-ac", "1", "-b:a", "96k", str(mp3_path)], check=True)
+    finally:
+        wav.unlink(missing_ok=True)
+    print(f"{beat}: word times by {reply['method']}", file=sys.stderr, flush=True)
+    return reply["words"]
+
+
+def close_chatterbox():
+    proc = CHATTERBOX.pop("proc", None)
+    if proc:
+        proc.stdin.close()
+        proc.wait(timeout=30)
+
+
 def split_marks(raw):
     """Return clean text and {mark: char position in clean text}."""
     marks, clean, pos = {}, [], 0
@@ -195,9 +260,11 @@ async def main(src, out_dir):
     out_dir.mkdir(parents=True, exist_ok=True)
     cache_path = Path(src).with_suffix(".timings.json")  # build cache, kept out of the site
     cache = json.loads(cache_path.read_text(encoding="utf-8-sig")) if cache_path.exists() else {}
-    voice, rate, engine = spec["voice"], spec["rate"], spec.get("engine", "edge")
-    if engine not in ("edge", "kokoro"):
-        raise SystemExit(f"unknown engine {engine!r}: use edge or kokoro")
+    engine = spec.get("engine", "edge")
+    voice, rate = spec["voice"], spec.get("rate", "+0%") if engine == "chatterbox" else spec["rate"]
+    if engine not in ("edge", "kokoro", "chatterbox"):
+        raise SystemExit(f"unknown engine {engine!r}: use edge, kokoro or chatterbox")
+    cb = spec.get("chatterbox", {})
     result = {}
     public = lambda v: {k: v[k] for k in ("dur", "marks", "cues")}
     live = {b: public(v) for b, v in cache.items()
@@ -208,6 +275,8 @@ async def main(src, out_dir):
         old = cache.get(beat)
         clean, marks = split_marks(raw)
         tag = "" if engine == "edge" else f"{engine}|"   # Edge keys stay as they were, so its audio is kept
+        if engine == "chatterbox":
+            tag += f"{cb.get('seed')}|{cb.get('temperature', 0.8)}|"   # another seed or temperature is another take
         key = hashlib.sha1(f"{tag}{voice}|{rate}|{clean}".encode()).hexdigest()
         # Existing caches included [[marks]] in the key; reuse an unchanged old beat once,
         # then save its spoken-text key so future mark edits do not regenerate audio.
@@ -224,9 +293,14 @@ async def main(src, out_dir):
         try:
             if not reusable:
                 words = (kokoro_beat(clean, voice, rate, clip) if engine == "kokoro"
+                         else chatterbox_beat(beat, clean, cb, clip) if engine == "chatterbox"
                          else await edge_beat(beat, clean, voice, rate, clip, out_dir))
+            cues = caption_cues(clean, words)
+            if engine == "chatterbox":   # [chuckle]-style tags are sounds, not caption text
+                cues = [[t, re.sub(r"\s*\[[\w ]+\]", "", line).strip()] for t, line in cues]
+                cues = [c for c in cues if c[1]]
             entry = {"key": key, "dur": duration(clip), "words": words,
-                     "marks": mark_times(clean, marks, words), "cues": caption_cues(clean, words)}
+                     "marks": mark_times(clean, marks, words), "cues": cues}
             if tmp:
                 tmp.replace(mp3)
                 print(f"{beat}: synthesized")
@@ -249,4 +323,7 @@ if __name__ == "__main__":
     if len(sys.argv) != 3:
         print(__doc__)
         sys.exit(0 if sys.argv[1:] in (["-h"], ["--help"]) else 2)
-    asyncio.run(main(*sys.argv[1:3]))
+    try:
+        asyncio.run(main(*sys.argv[1:3]))
+    finally:
+        close_chatterbox()

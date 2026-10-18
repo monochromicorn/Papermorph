@@ -195,10 +195,12 @@ def chatterbox_beat(beat, text, cfg, mp3_path):
                 raise SystemExit(f"{beat}: chunk {reply['truncated']} reached Chatterbox's limit of about 40 s and was cut "
                                  "off. A single sentence is too long: split it with full stops, or lower chatterbox.chunk_words.")
             score = 1.0 if reply["match"] is None else reply["match"]
+            n_words = max(1, len([w for w in text.split() if not re.fullmatch(r"\[[\w ]+\]", w)]))
+            ok = score >= min_match or round((1 - score) * n_words) <= 1   # one missed word never fails a short beat
             if best is None or score > best[0]:
                 best = (score, reply)
                 shutil.copyfile(wav, best_wav)
-            if score >= min_match:
+            if ok:
                 break
             if attempt + 1 < tries:
                 print(f"{beat}: only {score:.0%} of the script words were heard, making another take "
@@ -210,7 +212,7 @@ def chatterbox_beat(beat, text, cfg, mp3_path):
         best_wav.unlink(missing_ok=True)
     checked = f", {score:.0%} of the words heard" if reply["match"] is not None else ", words not checked"
     print(f"{beat}: word times by {reply['method']}{checked}, {reply['chunks']} chunk(s)", file=sys.stderr, flush=True)
-    if reply["match"] is not None and score < min_match:
+    if reply["match"] is not None and not ok:
         print(f"{beat}: WARNING: the best take still misses script words; listen to it before using it", file=sys.stderr, flush=True)
     return reply["words"]
 

@@ -27,6 +27,9 @@ import re
 import sys
 
 TAG = re.compile(r"^\[[\w ]+\]$")
+NUMWORDS = set("""zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen
+seventeen eighteen nineteen twenty thirty forty fifty sixty seventy eighty ninety hundred thousand million billion and
+dollars dollar percent point first second third""".split())   # whisper writes these as digits: 1,700 for "seventeen hundred"
 PAUSE = {",": 3, ";": 3, ":": 3, "—": 3, "–": 3, ".": 6, "?": 6, "!": 6}   # extra weight after a token, in letters
 TAG_WEIGHT = 8                                                           # a [chuckle] takes about this many letters
 GAP = 0.15                      # seconds of silence between chunks
@@ -105,10 +108,14 @@ def whisper_words(wav, tokens, model_name, language):
         return None, 0.0
     times = [None] * len(words)
     sm = difflib.SequenceMatcher(None, [norm(t) for t in words], [h for h, _ in heard], autojunk=False)
-    for tag, a0, a1, b0, _ in sm.get_opcodes():
+    for tag, a0, a1, b0, b1 in sm.get_opcodes():
         if tag == "equal":
             for k in range(a1 - a0):
                 times[a0 + k] = heard[b0 + k][1]
+        elif tag == "replace" and any(c.isdigit() for h, _ in heard[b0:b1] for c in h) \
+                and all(norm(t) in NUMWORDS for t in words[a0:a1]):   # spoken numbers heard as digits count as heard
+            for k in range(a1 - a0):
+                times[a0 + k] = heard[b0][1] + (heard[b1 - 1][1] - heard[b0][1]) * k / max(1, a1 - a0 - 1)
     match = sum(t is not None for t in times) / len(words)
     if match < 0.6:
         return None, match
